@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Tax Assistant Inbox</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <main class="layout">
+      <header class="hero card">
+        <div>
+          <p class="eyebrow">Tax Assistant MVP</p>
+          <h1>Collaborative Filing Inbox</h1>
+          <p class="subtitle">Create a return, ingest docs, resolve blockers, and export a FreeTaxUSA packet.</p>
+        </div>
+        <div class="status-strip">
+          <p><span>Active Return:</span> <code id="active-return">none</code></p>
+          <p><span>Readiness:</span> <strong id="readiness-pill">Unknown</strong></p>
+        </div>
+      </header>
+
+      <section class="grid">
+        <article class="card" id="create-card">
+          <h2>1. Create Return</h2>
+          <form id="create-return-form" class="stack">
+            <label>
+              Tax Year
+              <input type="number" name="tax_year" value="2025" min="2000" max="2100" required />
+            </label>
+            <label>
+              Primary State
+              <input type="text" name="primary_state" value="NY" maxlength="2" required />
+            </label>
+            <label>
+              Filing Status
+              <select name="filing_status">
+                <option value="mfj">Married Filing Jointly</option>
+                <option value="single">Single</option>
+                <option value="mfs">Married Filing Separately</option>
+                <option value="hoh">Head of Household</option>
+              </select>
+            </label>
+            <button type="submit">Create Return</button>
+          </form>
+        </article>
+
+        <article class="card" id="upload-card">
+          <h2>2. Upload Documents</h2>
+          <form id="upload-form" class="stack">
+            <label>
+              Owner
+              <input type="text" name="owner" value="taxpayer" required />
+            </label>
+            <label>
+              Source Type
+              <select name="source_type">
+                <option value="csv">CSV</option>
+                <option value="pdf">PDF</option>
+                <option value="screenshot">Screenshot</option>
+                <option value="photo">Photo</option>
+                <option value="other">Other</option>
+              </select>
+            </label>
+            <label>
+              Tax Year (doc)
+              <input type="number" name="tax_year" value="2025" min="2000" max="2100" required />
+            </label>
+            <label>
+              File
+              <input type="file" name="file" required />
+            </label>
+            <button type="submit">Upload</button>
+          </form>
+          <ul id="document-list" class="list"></ul>
+        </article>
+      </section>
+
+      <section class="grid">
+        <article class="card">
+          <h2>3. Extract + Review</h2>
+          <div class="button-row">
+            <button id="extract-all-btn" type="button">Extract All Docs</button>
+            <button id="load-facts-btn" type="button">Load Facts</button>
+            <button id="load-issues-btn" type="button">Load Issues</button>
+            <button id="load-readiness-btn" type="button">Load Readiness</button>
+          </div>
+          <div>
+            <h3>Facts</h3>
+            <pre id="facts-output" class="output"></pre>
+          </div>
+          <div>
+            <h3>Issues</h3>
+            <pre id="issues-output" class="output"></pre>
+          </div>
+        </article>
+
+        <article class="card">
+          <h2>4. Optimize + Collaborate</h2>
+          <div class="button-row">
+            <button id="optimize-btn" type="button">Run Optimize</button>
+          </div>
+          <pre id="optimize-output" class="output"></pre>
+
+          <form id="attest-form" class="stack top-gap">
+            <h3>Attest Fact</h3>
+            <label>
+              Fact
+              <select name="fact_id" id="fact-select"></select>
+            </label>
+            <label>
+              Rationale
+              <input type="text" name="rationale" value="Confirmed from original statement" minlength="5" required />
+            </label>
+            <label>
+              Actor ID
+              <input type="text" name="actor_id" value="taxpayer-1" required />
+            </label>
+            <label>
+              Role
+              <select name="role">
+                <option value="taxpayer">taxpayer</option>
+                <option value="spouse">spouse</option>
+                <option value="cpa">cpa</option>
+              </select>
+            </label>
+            <button type="submit">Submit Attestation</button>
+          </form>
+
+          <form id="approve-form" class="stack top-gap">
+            <h3>Approve Return</h3>
+            <label>
+              Decision
+              <select name="decision">
+                <option value="approved">approved</option>
+                <option value="rejected">rejected</option>
+              </select>
+            </label>
+            <label>
+              Notes
+              <input type="text" name="notes" value="Ready to file." />
+            </label>
+            <label>
+              Actor ID
+              <input type="text" name="actor_id" value="taxpayer-1" required />
+            </label>
+            <label>
+              Role
+              <select name="role">
+                <option value="taxpayer">taxpayer</option>
+                <option value="spouse">spouse</option>
+                <option value="cpa">cpa</option>
+              </select>
+            </label>
+            <button type="submit">Submit Approval</button>
+          </form>
+        </article>
+      </section>
+
+      <section class="card">
+        <h2>5. Export FreeTaxUSA Packet</h2>
+        <div class="button-row">
+          <button id="export-btn" type="button">Run Export</button>
+        </div>
+        <pre id="export-output" class="output"></pre>
+      </section>
+
+      <section class="card">
+        <h2>Activity</h2>
+        <pre id="activity-output" class="output"></pre>
+      </section>
+    </main>
+
+    <script type="module" src="/static/app.js"></script>
+  </body>
+</html>

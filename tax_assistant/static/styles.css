@@ -1,0 +1,186 @@
+:root {
+  --bg: #f2efe7;
+  --ink: #1f2428;
+  --card: #fffdf8;
+  --line: #d7ccb8;
+  --accent: #104f55;
+  --accent-strong: #0c3438;
+  --warn: #7f2f1f;
+  --success: #1f5f2d;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: "Avenir Next", "Gill Sans", "Trebuchet MS", sans-serif;
+  color: var(--ink);
+  background:
+    radial-gradient(circle at top right, rgba(16, 79, 85, 0.15), transparent 40%),
+    radial-gradient(circle at bottom left, rgba(191, 143, 92, 0.2), transparent 40%),
+    var(--bg);
+}
+
+.layout {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 24px;
+  display: grid;
+  gap: 16px;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 16px;
+}
+
+.card {
+  background: linear-gradient(160deg, rgba(255, 253, 248, 0.96), rgba(255, 251, 242, 0.9));
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  box-shadow: 0 8px 18px rgba(31, 36, 40, 0.08);
+  padding: 16px;
+}
+
+.hero {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.eyebrow {
+  margin: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--accent);
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+h1,
+h2,
+h3 {
+  margin: 0 0 10px;
+}
+
+.subtitle {
+  margin: 0;
+  max-width: 60ch;
+}
+
+.status-strip {
+  min-width: 220px;
+  align-self: flex-start;
+  font-size: 0.95rem;
+}
+
+.status-strip p {
+  margin: 0 0 8px;
+}
+
+.status-strip span {
+  color: #555;
+}
+
+.stack {
+  display: grid;
+  gap: 10px;
+}
+
+label {
+  display: grid;
+  gap: 6px;
+  font-size: 0.92rem;
+}
+
+input,
+select,
+button {
+  font: inherit;
+}
+
+input,
+select {
+  border: 1px solid #b7ad9a;
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: #fff;
+}
+
+button {
+  border: 1px solid var(--accent-strong);
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  padding: 8px 14px;
+  cursor: pointer;
+}
+
+button:hover {
+  background: var(--accent-strong);
+}
+
+.button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.list {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.list li {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.output {
+  min-height: 72px;
+  max-height: 220px;
+  overflow: auto;
+  margin: 0;
+  padding: 10px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: #fff;
+  font-family: "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
+
+.top-gap {
+  margin-top: 14px;
+}
+
+.readiness-good {
+  color: var(--success);
+}
+
+.readiness-bad {
+  color: var(--warn);
+}
+
+@media (max-width: 760px) {
+  .layout {
+    padding: 14px;
+  }
+
+  .hero {
+    flex-direction: column;
+  }
+}
