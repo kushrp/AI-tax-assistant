@@ -4,6 +4,7 @@ const state = {
   documents: [],
   facts: [],
 };
+const API_BASE_URL = String(window.TAX_ASSISTANT_API_BASE_URL || "").replace(/\/$/, "");
 
 const refs = {
   activeReturn: document.querySelector("#active-return"),
@@ -35,7 +36,7 @@ function ensureReturn() {
 }
 
 async function apiJson(path, options = {}) {
-  const response = await fetch(path, {
+  const response = await fetch(apiPath(path), {
     headers: {
       ...(options.headers || {}),
     },
@@ -53,23 +54,50 @@ async function apiJson(path, options = {}) {
   return body;
 }
 
+function apiPath(path) {
+  if (!API_BASE_URL) {
+    return path;
+  }
+  if (path.startsWith("http://") || path.startsWith("https://")) {
+    return path;
+  }
+  return `${API_BASE_URL}${path}`;
+}
+
 function setReturnId(returnId, taxYear) {
   state.returnId = returnId;
   state.returnYear = taxYear;
+  state.documents = [];
+  state.facts = [];
   refs.activeReturn.textContent = returnId;
 
   document.querySelector('#upload-form input[name="tax_year"]').value = String(taxYear);
   refs.readinessPill.textContent = "In progress";
   refs.readinessPill.className = "readiness-bad";
+  refs.factsOutput.textContent = "";
+  refs.issuesOutput.textContent = "";
+  refs.optimizeOutput.textContent = "";
+  refs.exportOutput.textContent = "";
+  renderDocuments();
 }
 
 function renderDocuments() {
   refs.documentList.innerHTML = "";
+  if (state.documents.length === 0) {
+    const li = document.createElement("li");
+    li.textContent = "No documents uploaded yet.";
+    refs.documentList.appendChild(li);
+    return;
+  }
+
   for (const doc of state.documents) {
     const li = document.createElement("li");
 
     const label = document.createElement("span");
-    label.textContent = `${doc.fileName} (${doc.sourceType})`; // nosemgrep
+    const extractionStatus = doc.latest_extraction_status || "not_extracted";
+    label.textContent =
+      `${doc.file_name} [${doc.doc_type}] (${doc.source_type}) | ` +
+      `facts=${doc.facts_extracted} | extraction=${extractionStatus}`;
 
     const extractBtn = document.createElement("button");
     extractBtn.textContent = "Extract";
@@ -105,11 +133,23 @@ async function refreshReadiness() {
   return readiness;
 }
 
+async function loadDocuments() {
+  ensureReturn();
+  const docs = await apiJson(`/v1/returns/${state.returnId}/documents`);
+  state.documents = docs;
+  renderDocuments();
+  logActivity("Documents loaded", { count: docs.length });
+  return docs;
+}
+
 async function runExtraction(documentId) {
   const result = await apiJson(`/v1/documents/${documentId}/extract`, {
     method: "POST",
   });
   logActivity(`Extraction finished for ${documentId}`, result);
+  await loadDocuments();
+  await refreshReadiness().catch(() => null);
+  return result;
 }
 
 document.querySelector("#create-return-form").addEventListener("submit", async (event) => {
@@ -131,6 +171,7 @@ document.querySelector("#create-return-form").addEventListener("submit", async (
 
     setReturnId(created.id, created.tax_year);
     logActivity("Return created", created);
+    await loadDocuments();
   } catch (error) {
     logActivity("Create return failed", { error: error.message });
   }
@@ -157,15 +198,8 @@ document.querySelector("#upload-form").addEventListener("submit", async (event) 
       body: payload,
     });
 
-    const file = form.get("file");
-    state.documents.push({
-      id: uploaded.document_id,
-      fileName: file?.name || uploaded.document_id,
-      sourceType: String(form.get("source_type") || "csv"),
-    });
-
-    renderDocuments();
     logActivity("Document uploaded", uploaded);
+    await loadDocuments();
     event.currentTarget.reset();
     document.querySelector('#upload-form input[name="tax_year"]').value = String(state.returnYear);
   } catch (error) {
@@ -173,12 +207,24 @@ document.querySelector("#upload-form").addEventListener("submit", async (event) 
   }
 });
 
+document.querySelector("#load-docs-btn").addEventListener("click", async () => {
+  try {
+    await loadDocuments();
+  } catch (error) {
+    logActivity("Load docs failed", { error: error.message });
+  }
+});
+
 document.querySelector("#extract-all-btn").addEventListener("click", async () => {
   try {
     ensureReturn();
-    for (const doc of state.documents) {
-      await runExtraction(doc.id);
-    }
+    const result = await apiJson(`/v1/returns/${state.returnId}/extract-all`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ force: false }),
+    });
+    logActivity("Extract all finished", result);
+    await loadDocuments();
     await refreshReadiness();
   } catch (error) {
     logActivity("Extract all failed", { error: error.message });
@@ -306,3 +352,5 @@ document.querySelector("#export-btn").addEventListener("click", async () => {
     await refreshReadiness().catch(() => null);
   }
 });
+
+renderDocuments();

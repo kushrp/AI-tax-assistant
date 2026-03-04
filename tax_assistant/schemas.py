@@ -27,6 +27,10 @@ class HealthResponse(BaseModel):
     database: str
 
 
+class ClientConfigResponse(BaseModel):
+    api_base_url: str
+
+
 class ReturnResponse(BaseModel):
     id: str
     tax_year: int
@@ -48,6 +52,42 @@ class ExtractionResponse(BaseModel):
     document_id: str
     extracted_facts: int
     issues_created: int
+
+
+class ReturnDocumentResponse(BaseModel):
+    id: str
+    return_id: str
+    file_name: str
+    source_type: str
+    doc_type: str
+    tax_year: int
+    owner: str
+    created_at: datetime
+    latest_extraction_job_id: Optional[str] = None
+    latest_extraction_status: Optional[str] = None
+    facts_extracted: int = 0
+
+
+class ExtractAllRequest(BaseModel):
+    force: bool = False
+
+
+class ExtractAllDocumentResult(BaseModel):
+    document_id: str
+    status: str
+    extracted_facts: int
+    extraction_job_id: Optional[str] = None
+    error: Optional[str] = None
+
+
+class ExtractAllResponse(BaseModel):
+    return_id: str
+    processed: int
+    succeeded: int
+    skipped: int
+    failed: int
+    open_issues: int
+    documents: list[ExtractAllDocumentResult]
 
 
 class TaxFactResponse(BaseModel):
@@ -90,6 +130,20 @@ class IssueResponse(BaseModel):
     recommended_action: str
     owner: Optional[str]
     status: str
+
+
+class IssueTransitionRequest(BaseModel):
+    note: Optional[str] = None
+
+
+class IssueTransitionResponse(BaseModel):
+    id: str
+    status: str
+    category: str
+    title: str
+    blocking: bool
+    acted_by: str
+    note: Optional[str] = None
 
 
 class OptimizeRequest(BaseModel):
@@ -170,6 +224,35 @@ class FreetaxusaExportResponse(BaseModel):
     unresolved_question_queue: list[str]
     evidence_report: dict[str, Any]
     audit_summary: dict[str, Any]
+
+
+class MappingOverrideRequest(BaseModel):
+    canonical_fact_ref: str = Field(min_length=3)
+    status: str = Field(pattern="^(verified|unverified)$")
+    reason: Optional[str] = None
+
+
+class MappingEntryResponse(BaseModel):
+    pack_version: str
+    canonical_fact_ref: str
+    export_field_key: str
+    status: str
+    verification_note: Optional[str] = None
+    updated_by: Optional[str] = None
+    updated_at: Optional[datetime] = None
+
+
+class MappingOverrideResponse(BaseModel):
+    canonical_fact_ref: str
+    status: str
+    reason: Optional[str] = None
+    updated_by: str
+    updated_at: datetime
+
+
+class RetentionRunResponse(BaseModel):
+    executed_at: datetime
+    result: dict[str, int]
 
 
 class ActorContext(BaseModel):

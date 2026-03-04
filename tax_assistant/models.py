@@ -67,6 +67,11 @@ class IssueStatus(str, Enum):
     RESOLVED = "resolved"
 
 
+class MappingStatus(str, Enum):
+    VERIFIED = "verified"
+    UNVERIFIED = "unverified"
+
+
 class ApprovalRole(str, Enum):
     TAXPAYER = "taxpayer"
     SPOUSE = "spouse"
@@ -186,3 +191,13 @@ class ApprovalEvent(SQLModel, table=True):
     decision: ApprovalDecision = Field(index=True)
     notes: Optional[str] = None
     created_at: datetime = Field(default_factory=utcnow)
+
+
+class MappingOverride(SQLModel, table=True):
+    id: str = Field(default_factory=new_id, primary_key=True)
+    pack_version: str = Field(index=True, default="freetaxusa_2025")
+    canonical_fact_ref: str = Field(index=True)
+    status: MappingStatus = Field(default=MappingStatus.UNVERIFIED, index=True)
+    reason: Optional[str] = None
+    updated_by: str = Field(index=True, default="system")
+    updated_at: datetime = Field(default_factory=utcnow)

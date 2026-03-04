@@ -17,7 +17,7 @@ from tax_assistant.models import (
     TaxFact,
     TaxReturn,
 )
-from tax_assistant.services.freetaxusa_mapping import is_mapped_form_line_ref
+from tax_assistant.services.freetaxusa_mapping import additive_form_line_refs, is_mapped_form_line_ref, is_verified_mapping
 
 
 def refresh_system_issues(session: Session, return_id: str) -> list[Issue]:
@@ -42,7 +42,7 @@ def refresh_system_issues(session: Session, return_id: str) -> list[Issue]:
     issues.extend(_missing_8606_issues(return_id, tax_return.tax_year, facts, documents))
     issues.extend(_screenshot_only_evidence_issues(return_id, facts, documents, evidence_links))
     issues.extend(_low_confidence_material_issues(return_id, facts, attestations))
-    issues.extend(_unmapped_material_fact_issues(return_id, facts))
+    issues.extend(_unmapped_or_unverified_material_fact_issues(session, return_id, facts))
     issues.extend(_missing_material_evidence_issues(return_id, facts, attestations, evidence_links))
 
     for issue in issues:
@@ -69,9 +69,12 @@ def _clear_open_system_issues(session: Session, return_id: str) -> None:
 
 
 def _conflicting_values_issues(return_id: str, facts: list[TaxFact]) -> list[Issue]:
+    aggregatable = additive_form_line_refs()
     by_ref: dict[str, set[float]] = defaultdict(set)
     for fact in facts:
         if fact.materiality != Materiality.MATERIAL:
+            continue
+        if fact.form_line_ref in aggregatable:
             continue
         by_ref[fact.form_line_ref].add(round(fact.value, 2))
 
@@ -229,7 +232,11 @@ def _missing_material_evidence_issues(
     ]
 
 
-def _unmapped_material_fact_issues(return_id: str, facts: list[TaxFact]) -> list[Issue]:
+def _unmapped_or_unverified_material_fact_issues(
+    session: Session,
+    return_id: str,
+    facts: list[TaxFact],
+) -> list[Issue]:
     unmapped_refs = sorted(
         {
             fact.form_line_ref
@@ -237,21 +244,45 @@ def _unmapped_material_fact_issues(return_id: str, facts: list[TaxFact]) -> list
             if fact.materiality == Materiality.MATERIAL and not is_mapped_form_line_ref(fact.form_line_ref)
         }
     )
-    if not unmapped_refs:
-        return []
+    unverified_refs = sorted(
+        {
+            fact.form_line_ref
+            for fact in facts
+            if fact.materiality == Materiality.MATERIAL
+            and is_mapped_form_line_ref(fact.form_line_ref)
+            and not is_verified_mapping(session, fact.form_line_ref)
+        }
+    )
 
-    refs = ", ".join(unmapped_refs)
-    return [
-        Issue(
-            return_id=return_id,
-            severity=IssueSeverity.CRITICAL,
-            category="system.export.unmapped_material_fields",
-            title="Material facts missing FreeTaxUSA mapping",
-            description=f"Material facts cannot be exported because they are unmapped: {refs}.",
-            blocking=True,
-            recommended_action="Map each listed form line to a FreeTaxUSA field key or mark it non-material.",
+    issues: list[Issue] = []
+    if unmapped_refs:
+        refs = ", ".join(unmapped_refs)
+        issues.append(
+            Issue(
+                return_id=return_id,
+                severity=IssueSeverity.CRITICAL,
+                category="system.export.unmapped_material_fields",
+                title="Material facts missing FreeTaxUSA mapping",
+                description=f"Material facts cannot be exported because they are unmapped: {refs}.",
+                blocking=True,
+                recommended_action="Map each listed form line to a FreeTaxUSA field key or mark it non-material.",
+            )
         )
-    ]
+    if unverified_refs:
+        refs = ", ".join(unverified_refs)
+        issues.append(
+            Issue(
+                return_id=return_id,
+                severity=IssueSeverity.CRITICAL,
+                category="system.export.unverified_mapping_fields",
+                title="Material facts mapped to unverified FreeTaxUSA fields",
+                description=f"Material facts map to unverified fields and must be revalidated: {refs}.",
+                blocking=True,
+                recommended_action="Review mapping pack and mark impacted rows verified before export.",
+            )
+        )
+
+    return issues
 
 
 def _is_supplemental_evidence(document: Document) -> bool:

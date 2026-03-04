@@ -1,0 +1,38 @@
+name: Rule Regression
+
+on:
+  pull_request:
+  push:
+
+jobs:
+  tax-rule-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-dev.txt
+
+      - name: Run tax rule regression subset
+        run: |
+          python run_tests.py \
+            tests/test_api_workflows.py::test_conflicting_values_create_blocking_issue_and_block_export \
+            tests/test_api_workflows.py::test_missing_prior_8606_blocks_then_clears_after_prior_upload \
+            tests/test_e2e_workflows.py::test_conflicting_values_issue_blocks_export \
+            tests/test_e2e_workflows.py::test_missing_8606_is_blocking_issue \
+            tests/test_e2e_workflows.py::test_screenshot_only_evidence_creates_blocker \
+            tests/test_e2e_workflows.py::test_export_gate_blocks_then_passes_after_resolving_blocker \
+            tests/test_service_logic.py::test_refresh_system_issues_is_idempotent_and_flags_missing_coverage \
+            tests/test_service_logic.py::test_refresh_system_issues_flags_unmapped_material_fields
+

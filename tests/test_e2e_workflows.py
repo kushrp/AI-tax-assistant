@@ -257,3 +257,92 @@ def test_export_gate_blocks_then_passes_after_resolving_blocker(client: TestClie
     assert payload["ready_to_file"] is True
     assert payload["unresolved_question_queue"] == []
     assert any(field["field_key"] == "retirement.roth_conversion" for field in payload["fields"])
+
+
+def test_multi_broker_capital_gains_workflow_aggregates_export_fields(client: TestClient) -> None:
+    return_id = _create_return(client)
+    broker_a = _upload_csv(
+        client,
+        return_id=return_id,
+        file_name="broker_a_1099b.csv",
+        csv_body="symbol,proceeds,cost_basis\nAAPL,12000,10000\n",
+    )
+    broker_b = _upload_csv(
+        client,
+        return_id=return_id,
+        file_name="broker_b_1099b.csv",
+        csv_body="symbol,proceeds,cost_basis\nMSFT,7000,6500\n",
+    )
+    _extract(client, broker_a)
+    _extract(client, broker_b)
+
+    issues = _get_issues(client, return_id)
+    assert not any(issue["category"] == "system.conflict.values" for issue in issues)
+
+    export_response = _export(client, return_id)
+    assert export_response.status_code == 200, export_response.text
+    fields = {item["field_key"]: item["value"] for item in export_response.json()["fields"]}
+    assert fields["investments.total_proceeds"] == 19000.0
+    assert fields["investments.total_basis"] == 16500.0
+
+
+def test_multi_exchange_crypto_workflow_exports_combined_values(client: TestClient) -> None:
+    return_id = _create_return(client)
+    coinbase = _upload_csv(
+        client,
+        return_id=return_id,
+        file_name="coinbase_2025.csv",
+        csv_body="form_line_ref,value\nschedule_d.total_proceeds,4000\nschedule_d.total_basis,3200\n",
+    )
+    kraken = _upload_csv(
+        client,
+        return_id=return_id,
+        file_name="kraken_2025.csv",
+        csv_body="form_line_ref,value\nschedule_d.total_proceeds,6000\nschedule_d.total_basis,4800\n",
+    )
+    _extract(client, coinbase)
+    _extract(client, kraken)
+
+    docs_response = client.get(f"/v1/returns/{return_id}/documents")
+    assert docs_response.status_code == 200
+    assert all(doc["doc_type"] == "crypto" for doc in docs_response.json())
+
+    export_response = _export(client, return_id)
+    assert export_response.status_code == 200, export_response.text
+    fields = {item["field_key"]: item["value"] for item in export_response.json()["fields"]}
+    assert fields["investments.total_proceeds"] == 10000.0
+    assert fields["investments.total_basis"] == 8000.0
+
+
+def test_federal_plus_ny_state_end_to_end_flow(client: TestClient) -> None:
+    return_id = _create_return(client, tax_year=2025)
+    doc_id = _upload_csv(
+        client,
+        return_id=return_id,
+        file_name="federal_plus_ny.csv",
+        csv_body=(
+            "form_line_ref,value\n"
+            "1040.line1a.wages,132000\n"
+            "1040.line25a.withholding,25000\n"
+            "ny.it201.line1.wages,132000\n"
+            "ny.it201.line33.new_york_adjusted_gross_income,129500\n"
+            "ny.it201.line37.new_york_taxable_income,114000\n"
+            "ny.it201.line46.new_york_state_tax,7000\n"
+            "ny.it201.line61.new_york_state_withholding,7300\n"
+        ),
+    )
+    _extract(client, doc_id)
+
+    issues = _get_issues(client, return_id)
+    assert issues == []
+
+    export_response = _export(client, return_id)
+    assert export_response.status_code == 200, export_response.text
+    fields = {item["field_key"]: item["value"] for item in export_response.json()["fields"]}
+    assert fields["federal.wages"] == 132000.0
+    assert fields["federal.withholding"] == 25000.0
+    assert fields["state.ny.wages"] == 132000.0
+    assert fields["state.ny.adjusted_gross_income"] == 129500.0
+    assert fields["state.ny.taxable_income"] == 114000.0
+    assert fields["state.ny.tax"] == 7000.0
+    assert fields["state.ny.withholding"] == 7300.0

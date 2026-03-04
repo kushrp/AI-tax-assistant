@@ -2,11 +2,12 @@ from __future__ import annotations
 
 from typing import Generator
 
-from fastapi import Header, HTTPException, Request
+from fastapi import Depends, Header, HTTPException, Request
 from sqlmodel import Session
 
 from tax_assistant.config import Settings
 from tax_assistant.models import ApprovalRole
+from tax_assistant.services.auth_service import actor_from_bearer_token, actor_from_headers
 from tax_assistant.schemas import ActorContext
 
 
@@ -21,13 +22,28 @@ def get_settings(request: Request) -> Settings:
 
 
 def get_actor_context(
+    request: Request,
+    authorization: str | None = Header(default=None),
     x_user_id: str | None = Header(default=None),
     x_role: str | None = Header(default=None),
 ) -> ActorContext:
-    role_value = (x_role or ApprovalRole.TAXPAYER.value).lower()
-    try:
-        role = ApprovalRole(role_value)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=f"Invalid role '{role_value}'") from exc
+    settings: Settings = request.app.state.settings
+    if settings.normalized_auth_mode == "bearer":
+        return actor_from_bearer_token(authorization, settings)
+    return actor_from_headers(x_user_id, x_role)
 
-    return ActorContext(user_id=x_user_id or "anonymous", role=role)
+
+def get_authenticated_actor(
+    request: Request,
+    actor: ActorContext = Depends(get_actor_context),
+) -> ActorContext:
+    settings: Settings = request.app.state.settings
+    if settings.require_actor_identity and actor.user_id == "anonymous":
+        raise HTTPException(status_code=401, detail="Authenticated actor is required")
+    return actor
+
+
+def get_cpa_actor(actor: ActorContext = Depends(get_authenticated_actor)) -> ActorContext:
+    if actor.role != ApprovalRole.CPA:
+        raise HTTPException(status_code=403, detail="CPA role required")
+    return actor

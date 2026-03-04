@@ -5,6 +5,7 @@ from pathlib import Path
 
 from sqlmodel import select
 
+from tax_assistant.config import Settings
 from tax_assistant.models import (
     ApprovalDecision,
     ApprovalEvent,
@@ -17,6 +18,7 @@ from tax_assistant.models import (
     FilingStatus,
     Issue,
     IssueStatus,
+    MappingStatus,
     Materiality,
     SourceType,
     TaxFact,
@@ -26,8 +28,11 @@ from tax_assistant.services.confidence_service import evaluate_readiness
 from tax_assistant.services.document_service import classify_doc_type
 from tax_assistant.services.extraction_service import extract_facts
 from tax_assistant.services.export_service import build_freetaxusa_export
+from tax_assistant.services.freetaxusa_mapping import effective_mapping_status, set_mapping_override
 from tax_assistant.services.optimization_service import generate_scenarios
+from tax_assistant.services.retention_service import apply_retention_policy
 from tax_assistant.services.rules_engine import refresh_system_issues
+from tax_assistant.services.storage_service import build_object_storage, build_storage_key
 
 
 def _create_return(session, *, tax_year: int = 2025, filing_status: FilingStatus = FilingStatus.MFJ) -> TaxReturn:
@@ -91,6 +96,36 @@ def test_classify_doc_type_detects_8606_variants_and_csv_signatures():
         )
         == "1099-b"
     )
+
+
+def test_extract_facts_supports_new_york_csv_columns(tmp_path: Path):
+    csv_path = tmp_path / "ny_state.csv"
+    csv_path.write_text(
+        "ny_wages,ny_agi,ny_taxable_income,ny_state_tax,ny_withholding\n"
+        "120000,118500,103000,6100,6500\n",
+        encoding="utf-8",
+    )
+    document = Document(
+        return_id="return-ny",
+        file_name="ny_state.csv",
+        content_type="text/csv",
+        source_type=SourceType.CSV,
+        quality_tier=DocumentQuality.OFFICIAL,
+        sha256="sha-ny",
+        storage_path=str(csv_path),
+        classification_status="classified",
+        doc_type="it-201",
+        tax_year=2025,
+        owner="taxpayer",
+    )
+
+    facts = extract_facts(document)
+    refs = {fact.form_line_ref for fact in facts}
+    assert "ny.it201.line1.wages" in refs
+    assert "ny.it201.line33.new_york_adjusted_gross_income" in refs
+    assert "ny.it201.line37.new_york_taxable_income" in refs
+    assert "ny.it201.line46.new_york_state_tax" in refs
+    assert "ny.it201.line61.new_york_state_withholding" in refs
 
 
 def test_extract_facts_image_fallback_uses_original_upload_name(monkeypatch, tmp_path: Path):
@@ -410,3 +445,129 @@ def test_build_freetaxusa_export_uses_highest_confidence_fact_and_latest_approva
 
     approvals = payload["audit_summary"]["approvals"]
     assert approvals["taxpayer"]["decision"] == "rejected"
+
+
+def test_local_storage_backend_round_trip(tmp_path: Path):
+    settings = Settings(storage_backend="local", storage_dir=str(tmp_path / "uploads"))
+    storage = build_object_storage(settings)
+    key = build_storage_key(tax_year=2025, return_id="ret-1", digest="abc123", extension=".csv")
+
+    stored = storage.store_bytes(key, b"hello-tax")
+    assert stored.location.startswith("file://")
+    assert storage.exists(stored.location)
+    assert storage.read_bytes(stored.location) == b"hello-tax"
+
+    storage.delete(stored.location)
+    assert not storage.exists(stored.location)
+
+
+def test_mapping_override_status_transitions(session):
+    assert effective_mapping_status(session, "1040.line1a.wages") == MappingStatus.VERIFIED
+
+    set_mapping_override(
+        session,
+        canonical_fact_ref="1040.line1a.wages",
+        status=MappingStatus.UNVERIFIED,
+        actor_id="cpa-1",
+        reason="Drift found in filing season update.",
+    )
+    assert effective_mapping_status(session, "1040.line1a.wages") == MappingStatus.UNVERIFIED
+
+    set_mapping_override(
+        session,
+        canonical_fact_ref="1040.line1a.wages",
+        status=MappingStatus.VERIFIED,
+        actor_id="cpa-1",
+        reason="Row revalidated against current FreeTaxUSA flow.",
+    )
+    assert effective_mapping_status(session, "1040.line1a.wages") == MappingStatus.VERIFIED
+
+
+def test_apply_retention_policy_removes_old_return_artifacts(session, tmp_path: Path):
+    settings = Settings(
+        storage_backend="local",
+        storage_dir=str(tmp_path / "uploads"),
+        retention_days=30,
+    )
+    settings.ensure_paths()
+    now = datetime.now(timezone.utc)
+    stale_time = now - timedelta(days=120)
+
+    stale_return = TaxReturn(
+        tax_year=2023,
+        primary_state="NY",
+        filing_status=FilingStatus.SINGLE,
+        created_at=stale_time,
+        updated_at=stale_time,
+    )
+    active_return = TaxReturn(
+        tax_year=2025,
+        primary_state="NY",
+        filing_status=FilingStatus.MFJ,
+        created_at=now,
+        updated_at=now,
+    )
+    session.add(stale_return)
+    session.add(active_return)
+    session.commit()
+    session.refresh(stale_return)
+    session.refresh(active_return)
+
+    storage = build_object_storage(settings)
+    stale_payload = storage.store_bytes(
+        build_storage_key(tax_year=2023, return_id=stale_return.id, digest="retention-old", extension=".csv"),
+        b"form_line_ref,value\n1040.line1a.wages,50000\n",
+    )
+
+    stale_doc = Document(
+        return_id=stale_return.id,
+        file_name="old_w2.csv",
+        content_type="text/csv",
+        source_type=SourceType.CSV,
+        quality_tier=DocumentQuality.OFFICIAL,
+        sha256="retention-old",
+        storage_path=stale_payload.location,
+        classification_status="classified",
+        doc_type="w2",
+        tax_year=2023,
+        owner="taxpayer",
+        created_at=stale_time,
+    )
+    session.add(stale_doc)
+    session.commit()
+    session.refresh(stale_doc)
+
+    stale_fact = TaxFact(
+        return_id=stale_return.id,
+        tax_year=2023,
+        form_line_ref="1040.line1a.wages",
+        value=50000.0,
+        raw_value="50000",
+        source_doc_id=stale_doc.id,
+        source_locator="row:1",
+        confidence=0.98,
+        materiality=Materiality.MATERIAL,
+        status=FactStatus.EXTRACTED,
+    )
+    session.add(stale_fact)
+    session.commit()
+    session.refresh(stale_fact)
+
+    session.add(
+        EvidenceLink(
+            fact_id=stale_fact.id,
+            doc_id=stale_doc.id,
+            extraction_method="csv-direct",
+            checksum=stale_doc.sha256,
+        )
+    )
+    session.commit()
+
+    result = apply_retention_policy(session, settings, now=now)
+    assert result.returns_deleted == 1
+    assert result.documents_deleted == 1
+    assert result.storage_objects_deleted == 1
+
+    assert session.get(TaxReturn, stale_return.id) is None
+    assert session.get(TaxReturn, active_return.id) is not None
+    assert not storage.exists(stale_payload.location)

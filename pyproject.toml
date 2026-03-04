@@ -15,7 +15,9 @@ dependencies = [
   "python-multipart>=0.0.20",
   "pypdf>=5.4.0",
   "Pillow>=11.1.0",
-  "pydantic-settings>=2.10.0"
+  "pydantic-settings>=2.10.0",
+  "boto3>=1.39.0",
+  "pyjwt[crypto]>=2.10.1"
 ]
 
 [project.optional-dependencies]
@@ -27,6 +29,9 @@ dev = [
 [tool.pytest.ini_options]
 addopts = "-q"
 testpaths = ["tests"]
+markers = [
+  "integration: tests that require live external services or hosted endpoints",
+]
 
 [tool.setuptools.packages.find]
 where = ["."]

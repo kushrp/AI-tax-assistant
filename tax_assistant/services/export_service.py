@@ -7,7 +7,7 @@ from sqlmodel import Session, select
 
 from tax_assistant.config import Settings
 from tax_assistant.models import ApprovalEvent, EvidenceLink, Issue, IssueStatus, TaxFact, TaxReturn
-from tax_assistant.services.freetaxusa_mapping import mapped_field_key
+from tax_assistant.services.freetaxusa_mapping import additive_field_keys, mapped_field_key
 from tax_assistant.services.confidence_service import evaluate_readiness
 from tax_assistant.services.rules_engine import refresh_system_issues
 
@@ -40,9 +40,10 @@ def build_freetaxusa_export(session: Session, settings: Settings, return_id: str
 
     mapped_facts: dict[str, list[TaxFact]] = {}
     evidence_report: dict[str, list[dict]] = {}
+    additive_keys = additive_field_keys()
 
     for fact in facts:
-        field_key = mapped_field_key(fact.form_line_ref)
+        field_key = mapped_field_key(session, fact.form_line_ref)
         if not field_key:
             continue
 
@@ -70,13 +71,16 @@ def build_freetaxusa_export(session: Session, settings: Settings, return_id: str
     for field_key in sorted(mapped_facts):
         candidates = sorted(mapped_facts[field_key], key=lambda fact: (fact.confidence, fact.created_at), reverse=True)
         canonical = candidates[0]
+        value = round(canonical.value, 2)
+        if field_key in additive_keys:
+            value = round(sum(candidate.value for candidate in candidates), 2)
         fields.append(
             {
                 "field_key": field_key,
-                "value": round(canonical.value, 2),
+                "value": value,
                 "fact_id": canonical.id,
                 "source_doc_id": canonical.source_doc_id,
-                "confidence": canonical.confidence,
+                "confidence": max(candidate.confidence for candidate in candidates),
             }
         )
         evidence_report[field_key] = sorted(

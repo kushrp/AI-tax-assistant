@@ -11,6 +11,7 @@ from sqlmodel import Session, select
 
 from tax_assistant.config import Settings
 from tax_assistant.models import Document, DocumentQuality, SourceType, TaxReturn
+from tax_assistant.services.storage_service import build_object_storage, build_storage_key
 
 
 _DOC_TYPE_RULES: list[tuple[re.Pattern[str], str]] = [
@@ -30,6 +31,8 @@ _DOC_TYPE_RULES: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"\b5498\b", flags=re.IGNORECASE), "5498"),
     (re.compile(r"\b8949\b", flags=re.IGNORECASE), "8949"),
     (re.compile(r"\bschedule[-_\s]?d\b", flags=re.IGNORECASE), "schedule-d"),
+    (re.compile(r"\bit[-_\s]?201\b", flags=re.IGNORECASE), "it-201"),
+    (re.compile(r"\bnew[-_\s]?york\b|\bny[-_\s]?state\b", flags=re.IGNORECASE), "ny-state"),
     (
         re.compile(r"\b(crypto|coinbase|kraken|binance|gemini|etherscan|wallet)\b", flags=re.IGNORECASE),
         "crypto",
@@ -78,12 +81,9 @@ async def upload_document(
 
     extension = Path(file.filename or "").suffix.lower()
     file_name = file.filename or f"upload-{digest[:8]}{extension or '.bin'}"
-
-    stored_name = f"{digest}{extension or '.bin'}"
-    folder = settings.storage_path / str(tax_year) / return_id
-    folder.mkdir(parents=True, exist_ok=True)
-    storage_path = folder / stored_name
-    storage_path.write_bytes(payload)
+    storage = build_object_storage(settings)
+    storage_key = build_storage_key(tax_year=tax_year, return_id=return_id, digest=digest, extension=extension or ".bin")
+    stored = storage.store_bytes(storage_key, payload)
 
     quality = _resolve_quality(source_type, extension)
     doc_type = classify_doc_type(
@@ -100,7 +100,7 @@ async def upload_document(
         source_type=source_type,
         quality_tier=quality,
         sha256=digest,
-        storage_path=str(storage_path),
+        storage_path=stored.location,
         classification_status="classified",
         doc_type=doc_type,
         tax_year=tax_year,
@@ -111,6 +111,11 @@ async def upload_document(
     session.refresh(document)
 
     return DocumentUploadResult(document, duplicate=False)
+
+
+def read_document_payload(settings: Settings, document: Document) -> bytes:
+    storage = build_object_storage(settings)
+    return storage.read_bytes(document.storage_path)
 
 
 def classify_doc_type(

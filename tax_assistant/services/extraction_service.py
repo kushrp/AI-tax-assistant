@@ -10,6 +10,7 @@ from typing import Iterable
 from pypdf import PdfReader
 from sqlmodel import Session
 
+from tax_assistant.config import Settings
 from tax_assistant.models import (
     Document,
     EvidenceLink,
@@ -20,6 +21,7 @@ from tax_assistant.models import (
     TaxFact,
     utcnow,
 )
+from tax_assistant.services.document_service import read_document_payload
 
 
 @dataclass
@@ -44,6 +46,20 @@ _PDF_PATTERNS: list[tuple[str, str]] = [
     (r"ira distributions\s*\$?\s*([\d,]+(?:\.\d{2})?)", "1040.line4a.ira_distributions"),
     (r"taxable amount\s*\$?\s*([\d,]+(?:\.\d{2})?)", "1040.line4b.taxable_ira"),
     (r"mortgage interest received from payer\s*\$?\s*([\d,]+(?:\.\d{2})?)", "schedule_a.mortgage_interest"),
+    (r"new york wages\s*\$?\s*([\d,]+(?:\.\d{2})?)", "ny.it201.line1.wages"),
+    (
+        r"new york adjusted gross income\s*\$?\s*([\d,]+(?:\.\d{2})?)",
+        "ny.it201.line33.new_york_adjusted_gross_income",
+    ),
+    (
+        r"new york taxable income\s*\$?\s*([\d,]+(?:\.\d{2})?)",
+        "ny.it201.line37.new_york_taxable_income",
+    ),
+    (r"new york state tax\s*\$?\s*([\d,]+(?:\.\d{2})?)", "ny.it201.line46.new_york_state_tax"),
+    (
+        r"new york state tax withheld\s*\$?\s*([\d,]+(?:\.\d{2})?)",
+        "ny.it201.line61.new_york_state_withholding",
+    ),
 ]
 
 _CSV_COLUMN_MAP = {
@@ -62,10 +78,15 @@ _CSV_COLUMN_MAP = {
     "proceeds": "schedule_d.total_proceeds",
     "cost_basis": "schedule_d.total_basis",
     "conversion_amount": "roth.conversion.amount",
+    "ny_wages": "ny.it201.line1.wages",
+    "ny_agi": "ny.it201.line33.new_york_adjusted_gross_income",
+    "ny_taxable_income": "ny.it201.line37.new_york_taxable_income",
+    "ny_state_tax": "ny.it201.line46.new_york_state_tax",
+    "ny_withholding": "ny.it201.line61.new_york_state_withholding",
 }
 
 
-def run_extraction(session: Session, document: Document) -> tuple[ExtractionJob, list[TaxFact]]:
+def run_extraction(session: Session, settings: Settings, document: Document) -> tuple[ExtractionJob, list[TaxFact]]:
     job = ExtractionJob(document_id=document.id, status="pending", extractor="hybrid")
     session.add(job)
     session.commit()
@@ -78,7 +99,8 @@ def run_extraction(session: Session, document: Document) -> tuple[ExtractionJob,
     session.refresh(job)
 
     try:
-        extracted = extract_facts(document)
+        payload = read_document_payload(settings, document)
+        extracted = extract_facts_from_payload(document, payload=payload)
         facts: list[TaxFact] = []
         for item in extracted:
             fact = TaxFact(
@@ -125,23 +147,32 @@ def run_extraction(session: Session, document: Document) -> tuple[ExtractionJob,
 
 
 def extract_facts(document: Document) -> list[ExtractedFact]:
-    path = Path(document.storage_path)
+    return extract_facts_from_payload(document, payload=None)
+
+
+def extract_facts_from_payload(document: Document, payload: bytes | None = None) -> list[ExtractedFact]:
+    if payload is None:
+        path = _path_from_storage_location(document.storage_path)
+        payload = path.read_bytes()
+
+    path = _path_from_storage_location(document.storage_path)
+    suffix = path.suffix.lower() or Path(document.file_name).suffix.lower()
     source = document.source_type
 
-    if source == SourceType.CSV or path.suffix.lower() == ".csv":
-        return _extract_from_csv(path)
+    if source == SourceType.CSV or suffix == ".csv":
+        return _extract_from_csv(payload)
 
-    if path.suffix.lower() == ".pdf":
-        return _extract_from_pdf(path)
+    if suffix == ".pdf":
+        return _extract_from_pdf(payload)
 
-    if source in {SourceType.SCREENSHOT, SourceType.PHOTO} or path.suffix.lower() in {".png", ".jpg", ".jpeg", ".heic"}:
-        return _extract_from_image(path, fallback_name=document.file_name)
+    if source in {SourceType.SCREENSHOT, SourceType.PHOTO} or suffix in {".png", ".jpg", ".jpeg", ".heic"}:
+        return _extract_from_image(payload, fallback_name=document.file_name)
 
     return []
 
 
-def _extract_from_csv(path: Path) -> list[ExtractedFact]:
-    content = path.read_text(encoding="utf-8", errors="ignore")
+def _extract_from_csv(payload: bytes) -> list[ExtractedFact]:
+    content = payload.decode("utf-8", errors="ignore")
     reader = csv.DictReader(io.StringIO(content))
     rows = list(reader)
     facts: list[ExtractedFact] = []
@@ -232,8 +263,8 @@ def _extract_from_csv(path: Path) -> list[ExtractedFact]:
     return _merge_duplicate_facts(facts)
 
 
-def _extract_from_pdf(path: Path) -> list[ExtractedFact]:
-    reader = PdfReader(str(path))
+def _extract_from_pdf(payload: bytes) -> list[ExtractedFact]:
+    reader = PdfReader(io.BytesIO(payload))
     facts: list[ExtractedFact] = []
 
     for index, page in enumerate(reader.pages, start=1):
@@ -271,8 +302,8 @@ def _extract_from_pdf(path: Path) -> list[ExtractedFact]:
     return _merge_duplicate_facts(facts)
 
 
-def _extract_from_image(path: Path, fallback_name: str = "") -> list[ExtractedFact]:
-    text, ocr_available = _read_image_text(path)
+def _extract_from_image(payload: bytes, fallback_name: str = "") -> list[ExtractedFact]:
+    text, ocr_available = _read_image_text(payload)
 
     normalized = re.sub(r"\s+", " ", text.lower())
     facts: list[ExtractedFact] = []
@@ -387,12 +418,12 @@ def _merge_duplicate_facts(facts: Iterable[ExtractedFact]) -> list[ExtractedFact
     return list(merged.values())
 
 
-def _read_image_text(path: Path) -> tuple[str, bool]:
+def _read_image_text(payload: bytes) -> tuple[str, bool]:
     try:
         import pytesseract  # type: ignore
         from PIL import Image
 
-        return pytesseract.image_to_string(Image.open(path)), True
+        return pytesseract.image_to_string(Image.open(io.BytesIO(payload))), True
     except FileNotFoundError:
         raise
     except Exception:
@@ -403,3 +434,10 @@ def _locator_to_bbox(locator: str) -> str | None:
     if not locator or locator.startswith("page:"):
         return None
     return locator
+
+
+def _path_from_storage_location(location: str) -> Path:
+    raw = (location or "").strip()
+    if raw.startswith("file://"):
+        return Path(raw.removeprefix("file://"))
+    return Path(raw)
