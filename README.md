@@ -8,19 +8,17 @@ Collaborative tax workflow MVP for TY2025 (US Federal + NY) with:
 - FreeTaxUSA export packet gated by readiness
 
 ## Requirements
-- Python 3.11+
+- [uv](https://docs.astral.sh/uv/) (manages Python + environments)
 
 ## Setup
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install --upgrade pip
-python -m pip install -r requirements-dev.txt
+uv python install 3.12
+uv sync --frozen --extra dev
 ```
 
 ## Run the App
 ```bash
-python run_app.py
+uv run python run_app.py
 ```
 
 Open:
@@ -29,14 +27,14 @@ Open:
 
 ## Run Tests
 ```bash
-python run_tests.py
+uv run python run_tests.py
 ```
 
 Run live S3 integration (opt-in):
 ```bash
 RUN_LIVE_S3_TESTS=1 \
 TAX_ASSISTANT_LIVE_S3_BUCKET=your-bucket \
-python run_tests.py tests/test_s3_integration_live.py
+uv run python run_tests.py tests/test_s3_integration_live.py
 ```
 
 ## Tax Rule Governance
@@ -67,5 +65,5 @@ Note:
 
 Hosted smoke validation:
 ```bash
-python scripts/hosted_smoke.py --base-url https://your-hosted-origin
+uv run python scripts/hosted_smoke.py --base-url https://your-hosted-origin
 ```

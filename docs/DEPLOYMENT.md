@@ -81,13 +81,13 @@ This keeps the browser on one origin and avoids CORS complexity for now.
 Run the hosted smoke runner against Railway or Vercel:
 
 ```bash
-python scripts/hosted_smoke.py --base-url https://YOUR-HOST
+uv run python scripts/hosted_smoke.py --base-url https://YOUR-HOST
 ```
 
 If UI and API are split across origins:
 
 ```bash
-python scripts/hosted_smoke.py \
+uv run python scripts/hosted_smoke.py \
   --base-url https://YOUR-VERCEL-ORIGIN \
   --api-base-url https://YOUR-RAILWAY-API-ORIGIN
 ```

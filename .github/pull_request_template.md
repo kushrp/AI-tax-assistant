@@ -21,11 +21,10 @@
 
 ```bash
 # Example:
-# python run_tests.py tests/test_service_logic.py::test_refresh_system_issues_is_idempotent_and_flags_missing_coverage
+# uv run python run_tests.py tests/test_service_logic.py::test_refresh_system_issues_is_idempotent_and_flags_missing_coverage
 ```
 
 ## Source Citations (Required For Tax-Rule Changes)
 
 - Citation 1:
 - Citation 2:
-

@@ -54,11 +54,11 @@ If you add a new blocking rule/category, add at least:
 ## 5. Release Gate (Must Pass)
 
 - [ ] Run full suite:
-  - `python run_tests.py`
+  - `uv run python run_tests.py`
 - [ ] Run targeted rule-regression subset (fast gate):
-  - `python run_tests.py tests/test_service_logic.py tests/test_api_workflows.py tests/test_e2e_workflows.py`
+  - `uv run python run_tests.py tests/test_service_logic.py tests/test_api_workflows.py tests/test_e2e_workflows.py`
 - [ ] Start app and verify startup contract:
-  - `python run_app.py`
+  - `uv run python run_app.py`
   - `GET /healthz` returns `200` with `{"status":"ok","database":"ok"}`
 - [ ] Verify no open blocking issues for golden-flow fixture before export.
 - [ ] Verify export still returns `400` when readiness is false.
